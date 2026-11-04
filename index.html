@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>body{margin:0;font-size:14px}[hidden]{display:none!important}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
+<title>Scrum Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one dot-grid canvas split into four lane columns; notes either snap into a lane stack or float freely anywhere. */
+:root{
+  --bg:#eef1ee; --grid:#cfd6d2; --fg:#1f2a30; --muted:#5d6b70; --line:#c3ccc8;
+  --bar:#f7f8f5; --accent:#2f5d73; --accent-fg:#ffffff;
+  --n-gold:#f1d27a; --n-sage:#bfd8b0; --n-sky:#b5cfe3; --n-sand:#ebe0c8; --n-plum:#e2b4cb;
+  --note-fg:#1f2a30; --shadow:0 1px 2px rgba(20,35,40,.12),0 4px 10px rgba(20,35,40,.08);
+  --f-display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
+  --f-body:"Atkinson Hyperlegible",ui-sans-serif,system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#161d21; --grid:#2a353a; --fg:#e4ebe8; --muted:#97a6a4; --line:#2f3b40;
+  --bar:#1c2529; --accent:#8fbfd6; --accent-fg:#10191d;
+  --n-gold:#8a7430; --n-sage:#4f6b45; --n-sky:#3e5d75; --n-sand:#6a6150; --n-plum:#7a4a62;
+  --note-fg:#f2f5f3; --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 14px rgba(0,0,0,.3); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#161d21; --grid:#2a353a; --fg:#e4ebe8; --muted:#97a6a4; --line:#2f3b40;
+  --bar:#1c2529; --accent:#8fbfd6; --accent-fg:#10191d;
+  --n-gold:#8a7430; --n-sage:#4f6b45; --n-sky:#3e5d75; --n-sand:#6a6150; --n-plum:#7a4a62;
+  --note-fg:#f2f5f3; --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 14px rgba(0,0,0,.3); color-scheme:dark}
+
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);display:flex;flex-direction:column}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding-block:10px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  background:var(--bar);border-bottom:1px solid var(--line)}
+.bar h1{font-family:var(--f-display);font-weight:700;font-size:1.2rem;margin:0;letter-spacing:-.01em}
+.hint{color:var(--muted);font-size:.85rem;flex:1;min-width:180px}
+.controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.swatches{display:flex;gap:6px;align-items:center}
+.sw{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)}
+.sw[aria-pressed="true"]{border-color:var(--fg)}
+.sw:focus-visible,.btn:focus-visible,.toggle input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.btn{font:600 .82rem var(--f-body);border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:6px;padding:6px 10px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.toggle{display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer;user-select:none}
+.toggle input{position:absolute;opacity:0}
+.toggle span{width:34px;height:20px;border-radius:10px;background:var(--line);position:relative;transition:background .15s}
+.toggle span::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--bar);transition:transform .15s}
+.toggle input:checked+span{background:var(--accent)}
+.toggle input:checked+span::after{transform:translateX(14px)}
+
+.wrap{flex:1;overflow:auto;padding-left:max(0px,env(safe-area-inset-left,0px));padding-right:max(0px,env(safe-area-inset-right,0px))}
+.board{position:relative;min-width:960px;min-height:100%;cursor:text;
+  background-image:radial-gradient(var(--grid) 1px,transparent 1.2px);background-size:22px 22px}
+.lanes{position:absolute;inset:0;display:grid;grid-template-columns:repeat(4,1fr);pointer-events:none}
+.lane{border-right:1px dashed var(--line);position:relative}
+.lane:last-child{border-right:0}
+.lane.over{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.lane header{position:sticky;top:0;display:flex;align-items:baseline;gap:8px;padding:14px 16px 10px;background:linear-gradient(var(--bg) 70%,transparent)}
+.lane h2{font-family:var(--f-display);font-weight:500;font-size:1rem;margin:0}
+.lane .count{font-family:var(--f-mono);font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.lane .sub{font-size:.75rem;color:var(--muted);margin-left:auto}
+
+.note{position:absolute;width:220px;background:var(--c);color:var(--note-fg);border-radius:3px;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;cursor:default;transition:top .18s ease,left .18s ease,box-shadow .15s}
+.note.free{transform:rotate(var(--tilt,0deg))}
+.note.dragging{transition:none;box-shadow:0 10px 28px rgba(0,0,0,.25);z-index:50;transform:rotate(1.5deg) scale(1.02)}
+.note .grip{display:flex;align-items:center;gap:4px;height:22px;padding:0 4px 0 8px;cursor:grab;touch-action:none}
+.note .grip:active{cursor:grabbing}
+.note .dots{flex:1;height:6px;background-image:radial-gradient(currentColor 1px,transparent 1.3px);background-size:5px 5px;opacity:.3}
+.note .tools{display:flex;gap:3px;opacity:0;transition:opacity .12s}
+.note:hover .tools,.note:focus-within .tools{opacity:1}
+.note .tools button{width:14px;height:14px;border-radius:50%;border:1px solid rgba(0,0,0,.25);padding:0;cursor:pointer}
+.note .tools .del{border:0;background:none;width:18px;height:18px;font:700 14px/1 var(--f-body);color:inherit;opacity:.6;border-radius:3px}
+.note .tools .del:hover{opacity:1;background:rgba(0,0,0,.08)}
+.note textarea{border:0;background:transparent;resize:none;font:400 .95rem/1.4 var(--f-body);color:inherit;padding:2px 12px 12px;min-height:44px;overflow:hidden;outline:none;cursor:text}
+.note textarea::placeholder{color:inherit;opacity:.5}
+.note:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+.sync{display:flex;align-items:center;gap:6px}
+.sync .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.sync[data-state="ok"] .dot{background:#4f8a5b}
+.sync[data-state="busy"] .dot{background:#c9a227}
+.sync[data-state="err"] .dot,.sync[data-state="off"] .dot{background:#b0566f}
+.panel{position:fixed;inset:0;background:rgba(15,25,30,.45);display:flex;align-items:center;justify-content:center;z-index:100;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.panel .card{background:var(--bar);color:var(--fg);border:1px solid var(--line);border-radius:10px;max-width:440px;width:100%;padding:22px;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.panel h3{font-family:var(--f-display);font-weight:700;font-size:1.15rem;margin:0}
+.panel p,.panel li{font-size:.9rem;line-height:1.45;margin:0;color:var(--fg)}
+.panel ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.panel a{color:var(--accent)}
+.panel input{font:500 .85rem var(--f-mono);padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);width:100%;box-sizing:border-box}
+.panel .row{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.panel .primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.panel .msg{font-size:.82rem;color:var(--muted);min-height:1.2em}
+@media (prefers-reduced-motion:reduce){.note{transition:none}.toggle span,.toggle span::after{transition:none}}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>Scrum Board</h1>
+  <div class="hint">Click anywhere to add a note. Drag by the dotted strip. Turn off snapping to place notes freely.</div>
+  <div class="controls">
+    <div class="swatches" id="swatches" aria-label="New note color"></div>
+    <label class="toggle"><input type="checkbox" id="snap" checked><span></span>Snap to lanes</label>
+    <button class="btn" id="clearDone">Clear Done</button>
+    <button class="btn sync" id="syncBtn" data-state="off"><span class="dot"></span><span id="syncText">Not synced</span></button>
+  </div>
+</div>
+<div class="panel" id="panel" hidden>
+  <div class="card" role="dialog" aria-labelledby="panelTitle">
+    <h3 id="panelTitle">Sync across computers</h3>
+    <p>Your board saves to a private file in your GitHub account. Do this once on each computer.</p>
+    <ol>
+      <li><a href="https://github.com/settings/tokens/new?scopes=gist&amp;description=Scrum%20Board" target="_blank" rel="noopener">Create a GitHub token</a>. The "gist" box is already checked. Set expiration to "No expiration," then click Generate token.</li>
+      <li>Copy the token and paste it here.</li>
+    </ol>
+    <input id="tokenInput" type="password" placeholder="ghp_…" autocomplete="off" spellcheck="false">
+    <div class="msg" id="panelMsg"></div>
+    <div class="row">
+      <button class="btn" id="disconnect" hidden>Disconnect this computer</button>
+      <button class="btn" id="panelClose">Not now</button>
+      <button class="btn primary" id="connect">Connect</button>
+    </div>
+  </div>
+</div>
+<div class="wrap" id="wrap">
+  <div class="board" id="board">
+    <div class="lanes" id="lanes"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+const LANES=[
+  {id:"todo",name:"To Do",sub:"up next"},
+  {id:"doing",name:"In Progress",sub:"working on it"},
+  {id:"done",name:"Done",sub:"finished"},
+  {id:"ice",name:"Icebox",sub:"on hold"}
+];
+const COLORS=["gold","sage","sky","sand","plum"];
+const HEAD=52, GAP=12, PAD=16, KEY="scrum-board-v1";
+const board=document.getElementById("board"), lanesEl=document.getElementById("lanes"), wrap=document.getElementById("wrap");
+const snapEl=document.getElementById("snap");
+let notes=[], color="gold", els=new Map();
+
+let stamp=0, dirty=false;
+function load(){
+  try{const s=JSON.parse(localStorage.getItem(KEY)||"null"); if(s){notes=s.notes||[]; color=s.color||color; snapEl.checked=s.snap!==false; stamp=s.stamp||0; dirty=!!s.dirty; return;}}catch(e){}
+  seed();
+}
+function seed(){
+  notes=[
+    {id:id(),text:"Example: click empty space to add a note",color:"gold",lane:"todo",order:0},
+    {id:id(),text:"Example: drag me into In Progress",color:"sky",lane:"todo",order:1},
+    {id:id(),text:"Example: something I'm actively working on",color:"sage",lane:"doing",order:0},
+    {id:id(),text:"Example: idea I'm holding off on",color:"plum",lane:"ice",order:0},
+    {id:id(),text:"Example: a freeform note, not in any lane",color:"sand",lane:null,x:0.27,y:300,tilt:-1.5}
+  ];
+}
+function local(){try{localStorage.setItem(KEY,JSON.stringify({notes,color,snap:snapEl.checked,stamp,dirty}))}catch(e){}}
+function save(){stamp=Date.now();dirty=true;local();schedulePush()}
+function id(){return Math.random().toString(36).slice(2,10)}
+function colW(){return board.clientWidth/4}
+
+// lanes
+LANES.forEach(l=>{const d=document.createElement("div");d.className="lane";d.dataset.lane=l.id;
+  d.innerHTML=`<header><h2>${l.name}</h2><span class="count"></span><span class="sub">${l.sub}</span></header>`;lanesEl.appendChild(d)});
+
+// swatches
+const swWrap=document.getElementById("swatches");
+COLORS.forEach(c=>{const b=document.createElement("button");b.className="sw";b.id="sw-"+c;b.title=c;b.style.background=`var(--n-${c})`;
+  b.setAttribute("aria-label",c+" notes");b.onclick=()=>{color=c;paintSw();save()};swWrap.appendChild(b)});
+function paintSw(){COLORS.forEach(c=>document.getElementById("sw-"+c).setAttribute("aria-pressed",c===color))}
+
+function makeEl(n){
+  const el=document.createElement("div");el.className="note";el.dataset.id=n.id;
+  el.innerHTML=`<div class="grip"><span class="dots"></span><span class="tools">${COLORS.map(c=>`<button data-c="${c}" style="background:var(--n-${c})" aria-label="Make ${c}"></button>`).join("")}<button class="del" aria-label="Delete note">×</button></span></div><textarea id="t-${n.id}" rows="1" placeholder="Type a task…"></textarea>`;
+  const ta=el.querySelector("textarea");ta.value=n.text||"";
+  ta.addEventListener("input",()=>{n.text=ta.value;grow(ta);layout();save()});
+  ta.addEventListener("keydown",e=>{if(e.key==="Escape")ta.blur()});
+  ta.addEventListener("blur",()=>{if(!ta.value.trim()){remove(n.id)}});
+  el.querySelectorAll(".tools [data-c]").forEach(b=>b.onclick=e=>{e.stopPropagation();n.color=b.dataset.c;paint(el,n);save()});
+  el.querySelector(".del").onclick=e=>{e.stopPropagation();remove(n.id)};
+  el.addEventListener("pointerdown",e=>e.stopPropagation());
+  el.querySelector(".grip").addEventListener("pointerdown",e=>startDrag(e,n,el));
+  board.appendChild(el);els.set(n.id,el);paint(el,n);
+  requestAnimationFrame(()=>grow(ta));
+  return el;
+}
+function paint(el,n){el.style.setProperty("--c",`var(--n-${n.color})`);el.classList.toggle("free",!n.lane);el.style.setProperty("--tilt",(n.tilt||0)+"deg")}
+function grow(ta){ta.style.height="auto";ta.style.height=ta.scrollHeight+"px"}
+function remove(nid){notes=notes.filter(n=>n.id!==nid);const el=els.get(nid);if(el){el.remove();els.delete(nid)}layout();save()}
+
+function layout(){
+  const w=colW();let maxY=0;
+  LANES.forEach((l,i)=>{
+    const list=notes.filter(n=>n.lane===l.id).sort((a,b)=>a.order-b.order);
+    let y=HEAD;
+    list.forEach((n,k)=>{n.order=k;const el=els.get(n.id);if(!el||el.classList.contains("dragging"))return;
+      el.style.width=Math.min(240,w-PAD*2)+"px";el.style.left=(i*w+(w-el.offsetWidth)/2)+"px";el.style.top=y+"px";y+=el.offsetHeight+GAP});
+    maxY=Math.max(maxY,y);
+    lanesEl.children[i].querySelector(".count").textContent=list.length;
+  });
+  notes.filter(n=>!n.lane).forEach(n=>{const el=els.get(n.id);if(!el||el.classList.contains("dragging"))return;
+    el.style.width="220px";el.style.left=Math.max(4,Math.min(n.x*board.clientWidth,board.clientWidth-224))+"px";el.style.top=n.y+"px";maxY=Math.max(maxY,n.y+el.offsetHeight)});
+  board.style.height=Math.max(wrap.clientHeight,maxY+160)+"px";
+}
+
+function laneAt(x){const i=Math.max(0,Math.min(3,Math.floor(x/colW())));return LANES[i].id}
+function orderAt(lane,y,skip){const list=notes.filter(n=>n.lane===lane&&n.id!==skip).sort((a,b)=>a.order-b.order);
+  let k=0;for(const n of list){const el=els.get(n.id);if(y>el.offsetTop+el.offsetHeight/2)k++;else break}return {list,k}}
+function insert(n,lane,y){const {list,k}=orderAt(lane,y,n.id);list.splice(k,0,n);n.lane=lane;list.forEach((m,i)=>m.order=i)}
+
+function boardPt(e){const r=board.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top}}
+
+// click to create
+board.addEventListener("pointerdown",e=>{
+  if(e.button!==0)return;
+  const a=document.activeElement;
+  if(a&&a.tagName==="TEXTAREA"&&board.contains(a)){a.blur();return}
+  const p=boardPt(e);
+  const n={id:id(),text:"",color,lane:null,x:0,y:0,tilt:0};
+  if(snapEl.checked){notes.push(n);insert(n,laneAt(p.x),p.y)}
+  else{n.x=Math.max(0,(p.x-110))/board.clientWidth;n.y=Math.max(HEAD,p.y-14);n.tilt=+(Math.random()*3-1.5).toFixed(1);notes.push(n)}
+  const el=makeEl(n);layout();
+  e.preventDefault();
+  setTimeout(()=>el.querySelector("textarea").focus(),0);
+});
+
+// drag
+function startDrag(e,n,el){
+  if(e.target.closest("button"))return;
+  e.preventDefault();e.stopPropagation();
+  const grip=e.currentTarget;grip.setPointerCapture(e.pointerId);
+  const p0=boardPt(e),ox=p0.x-el.offsetLeft,oy=p0.y-el.offsetTop;
+  el.classList.add("dragging");
+  let overLane=null;
+  const move=ev=>{const p=boardPt(ev);el.style.left=(p.x-ox)+"px";el.style.top=(p.y-oy)+"px";
+    const cx=el.offsetLeft+el.offsetWidth/2;
+    const l=snapEl.checked?laneAt(cx):null;
+    if(l!==overLane){[...lanesEl.children].forEach(d=>d.classList.toggle("over",d.dataset.lane===l));overLane=l}};
+  const up=ev=>{
+    grip.removeEventListener("pointermove",move);grip.removeEventListener("pointerup",up);grip.removeEventListener("pointercancel",up);
+    [...lanesEl.children].forEach(d=>d.classList.remove("over"));
+    const cx=el.offsetLeft+el.offsetWidth/2, cy=el.offsetTop;
+    el.classList.remove("dragging");
+    if(snapEl.checked){n.tilt=0;insert(n,laneAt(cx),cy+el.offsetHeight/2)}
+    else{n.lane=null;n.x=Math.max(0,el.offsetLeft)/board.clientWidth;n.y=Math.max(HEAD,cy);if(!n.tilt)n.tilt=+(Math.random()*3-1.5).toFixed(1)}
+    paint(el,n);layout();save();
+  };
+  grip.addEventListener("pointermove",move);grip.addEventListener("pointerup",up);grip.addEventListener("pointercancel",up);
+}
+
+document.getElementById("clearDone").onclick=()=>{notes.filter(n=>n.lane==="done").forEach(n=>{const el=els.get(n.id);el&&el.remove();els.delete(n.id)});
+  notes=notes.filter(n=>n.lane!=="done");layout();save()};
+snapEl.addEventListener("change",save);
+window.addEventListener("resize",layout);
+
+function render(){
+  els.forEach(el=>el.remove());els.clear();
+  paintSw();notes.forEach(makeEl);
+  requestAnimationFrame(()=>{notes.forEach(n=>{const el=els.get(n.id);el&&grow(el.querySelector("textarea"))});layout()});
+}
+
+/* ---------- GitHub Gist sync ---------- */
+const API="https://api.github.com", FILE="scrum-board.json", TK="scrum-board-token", GK="scrum-board-gist";
+const syncBtn=document.getElementById("syncBtn"), syncText=document.getElementById("syncText");
+const panel=document.getElementById("panel"), tokenInput=document.getElementById("tokenInput"), panelMsg=document.getElementById("panelMsg");
+let token=get(TK), gistId=get(GK), pushTimer=null, pushing=false, pulling=false;
+function get(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function put(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}}
+function status(state,text){syncBtn.dataset.state=state;syncText.textContent=text}
+async function gh(path,opts={}){
+  const r=await fetch(API+path,{...opts,cache:"no-store",headers:{"Authorization":"Bearer "+token,"Accept":"application/vnd.github+json",...(opts.body?{"Content-Type":"application/json"}:{})}});
+  if(!r.ok){const e=new Error("HTTP "+r.status);e.status=r.status;throw e}
+  return r.status===204?null:r.json();
+}
+function payload(){return JSON.stringify({notes,color,snap:snapEl.checked,stamp},null,1)}
+async function findOrCreate(){
+  for(let page=1;page<=5;page++){
+    const list=await gh(`/gists?per_page=100&page=${page}`);
+    const hit=list.find(g=>g.files&&g.files[FILE]);
+    if(hit)return hit.id;
+    if(list.length<100)break;
+  }
+  const g=await gh("/gists",{method:"POST",body:JSON.stringify({description:"Scrum Board data",public:false,files:{[FILE]:{content:payload()}}})});
+  dirty=false;local();
+  return g.id;
+}
+async function readRemote(){
+  const g=await gh("/gists/"+gistId);
+  const f=g.files&&g.files[FILE];if(!f)return null;
+  let text=f.content;
+  if(f.truncated){text=await (await fetch(f.raw_url,{cache:"no-store"})).text()}
+  try{return JSON.parse(text)}catch(e){return null}
+}
+function editing(){const a=document.activeElement;return a&&a.tagName==="TEXTAREA"}
+async function pull(){
+  if(!token||!gistId||pulling||pushing||editing()||dirty)return;
+  pulling=true;
+  try{
+    const d=await readRemote();
+    if(d&&Array.isArray(d.notes)&&(d.stamp||0)!==stamp){
+      notes=d.notes;color=d.color||color;snapEl.checked=d.snap!==false;stamp=d.stamp||0;local();render();
+    }
+    status("ok","Synced");
+  }catch(e){fail(e)}
+  pulling=false;
+}
+function schedulePush(){
+  if(!token)return;
+  clearTimeout(pushTimer);status("busy","Saving…");
+  pushTimer=setTimeout(push,1200);
+}
+async function push(){
+  if(!token||!gistId)return;
+  if(pushing){schedulePush();return}
+  pushing=true;const sent=stamp;
+  try{
+    await gh("/gists/"+gistId,{method:"PATCH",body:JSON.stringify({files:{[FILE]:{content:payload()}}})});
+    if(stamp===sent){dirty=false;local()}
+    status("ok","Synced");
+  }catch(e){fail(e)}
+  pushing=false;
+}
+function fail(e){
+  if(e.status===401){status("err","Token rejected");return}
+  if(e.status===404&&gistId){put(GK,null);gistId=null;status("err","Sync file missing");return}
+  status("err","Offline, saved here");
+}
+async function connect(){
+  if(!token){status("off","Not synced");return}
+  status("busy","Connecting…");
+  try{
+    if(!gistId){gistId=await findOrCreate();put(GK,gistId)}
+    const d=await readRemote();
+    if(d&&Array.isArray(d.notes)){
+      if(dirty&&stamp>(d.stamp||0)){await push()}
+      else{notes=d.notes;color=d.color||color;snapEl.checked=d.snap!==false;stamp=d.stamp||0;dirty=false;local();render()}
+    }else{await push()}
+    status("ok","Synced");return true;
+  }catch(e){fail(e);return false}
+}
+
+syncBtn.onclick=()=>{tokenInput.value="";panelMsg.textContent=token?"This computer is connected. Paste a new token to replace it.":"";
+  document.getElementById("disconnect").hidden=!token;panel.hidden=false;tokenInput.focus()};
+document.getElementById("panelClose").onclick=()=>{panel.hidden=true};
+panel.addEventListener("pointerdown",e=>{if(e.target===panel)panel.hidden=true});
+document.getElementById("disconnect").onclick=()=>{token=null;gistId=null;put(TK,null);put(GK,null);status("off","Not synced");panel.hidden=true};
+document.getElementById("connect").onclick=async()=>{
+  const t=tokenInput.value.trim();if(!t){panelMsg.textContent="Paste your token first.";return}
+  panelMsg.textContent="Connecting…";
+  const prev=token;token=t;gistId=null;
+  if(await connect()){put(TK,t);put(GK,gistId);panel.hidden=true}
+  else{panelMsg.textContent=syncBtn.dataset.state==="err"&&syncText.textContent==="Token rejected"?"GitHub rejected that token. Check that the gist box was checked and try again.":"Couldn't reach GitHub. Check your connection and try again.";token=prev}
+};
+tokenInput.addEventListener("keydown",e=>{if(e.key==="Enter")document.getElementById("connect").click();if(e.key==="Escape")panel.hidden=true});
+window.addEventListener("focus",pull);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)pull()});
+setInterval(()=>{if(!document.hidden)pull()},60000);
+window.addEventListener("beforeunload",()=>{if(dirty&&token&&gistId){clearTimeout(pushTimer);
+  fetch(API+"/gists/"+gistId,{method:"PATCH",keepalive:true,headers:{"Authorization":"Bearer "+token,"Accept":"application/vnd.github+json","Content-Type":"application/json"},body:JSON.stringify({files:{[FILE]:{content:payload()}}})})}});
+
+load();render();
+if(token)connect();else{status("off","Not synced");if(!get("scrum-board-asked")){put("scrum-board-asked","1");panel.hidden=false}}
+})();
+</script>
+
+</body>
+</html>
