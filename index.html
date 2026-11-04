@@ -108,6 +108,27 @@ body{background:var(--bg);color:var(--fg);font-family:var(--f-body);display:flex
 .panel .row{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
 .panel .primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 .panel .msg{font-size:.82rem;color:var(--muted);min-height:1.2em}
+.note .tools .mv{border:0;background:none;width:20px;height:18px;font:700 13px/1 var(--f-body);color:inherit;opacity:.6;border-radius:3px}
+.note .tools .mv:hover{opacity:1;background:rgba(0,0,0,.08)}
+.menu{position:absolute;top:24px;right:4px;z-index:60;background:var(--bar);color:var(--fg);border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.2);padding:4px;display:flex;flex-direction:column;min-width:150px}
+.menu .label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:6px 10px 4px}
+.menu button{font:500 .9rem var(--f-body);text-align:left;background:none;border:0;color:var(--fg);padding:9px 10px;border-radius:5px;cursor:pointer}
+.menu button:hover,.menu button:focus-visible{background:color-mix(in srgb,var(--accent) 14%,transparent);outline:none}
+.menu button[aria-current="true"]{color:var(--muted)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.icon{padding:6px 9px;font-size:.95rem;line-height:1}
+.archive-list{display:flex;flex-direction:column;gap:8px;max-height:min(55vh,420px);overflow:auto;margin:0;padding:0;list-style:none}
+.archive-list li{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:6px;background:var(--c);color:var(--note-fg)}
+.archive-list .txt{flex:1;min-width:0;font-size:.9rem;line-height:1.35;white-space:pre-wrap;overflow-wrap:anywhere}
+.archive-list .when{display:block;font-size:.72rem;opacity:.7;margin-top:4px}
+.archive-list .btn{border-color:rgba(0,0,0,.25);color:inherit;flex:none}
+.empty{color:var(--muted);font-size:.9rem;margin:0}
+@media (hover:none){
+  .note .tools{opacity:1}
+  .note .tools button{width:20px;height:20px}
+  .note .tools .del,.note .tools .mv{width:28px;height:26px;font-size:16px}
+  .note .grip{height:32px}
+}
 @media (prefers-reduced-motion:reduce){.note{transition:none}.toggle span,.toggle span::after{transition:none}}
 </style>
 </head>
@@ -115,12 +136,23 @@ body{background:var(--bg);color:var(--fg);font-family:var(--f-body);display:flex
 
 <div class="bar">
   <h1>Scrum Board</h1>
-  <div class="hint">Click anywhere to add a note. Drag by the dotted strip. Turn off snapping to place notes freely.</div>
+  <div class="hint">Click anywhere to add a note. Drag by the dotted strip or use ⇄ to move. Ctrl+Z undoes.</div>
   <div class="controls">
     <div class="swatches" id="swatches" aria-label="New note color"></div>
     <label class="toggle"><input type="checkbox" id="snap" checked><span></span>Snap to lanes</label>
+    <button class="btn icon" id="undoBtn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
+    <button class="btn icon" id="redoBtn" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>↷</button>
     <button class="btn" id="clearDone">Clear Done</button>
+    <button class="btn" id="archiveBtn">Archive</button>
     <button class="btn sync" id="syncBtn" data-state="off"><span class="dot"></span><span id="syncText">Not synced</span></button>
+  </div>
+</div>
+<div class="panel" id="archivePanel" hidden>
+  <div class="card" role="dialog" aria-labelledby="archiveTitle">
+    <h3 id="archiveTitle">Archive</h3>
+    <p>Deleted and cleared notes stay here for 7 days, then disappear for good.</p>
+    <ul class="archive-list" id="archiveList"></ul>
+    <div class="row"><button class="btn" id="archiveClose">Close</button></div>
   </div>
 </div>
 <div class="panel" id="panel" hidden>
@@ -158,11 +190,13 @@ const COLORS=["gold","sage","sky","sand","plum"];
 const HEAD=52, GAP=12, PAD=16, KEY="scrum-board-v1";
 const board=document.getElementById("board"), lanesEl=document.getElementById("lanes"), wrap=document.getElementById("wrap");
 const snapEl=document.getElementById("snap");
-let notes=[], color="gold", els=new Map();
+let notes=[], archive=[], color="gold", els=new Map();
+const KEEP=7*24*3600*1000;
+function prune(){const cut=Date.now()-KEEP;archive=archive.filter(a=>a.deletedAt>cut)}
 
 let stamp=0, dirty=false;
 function load(){
-  try{const s=JSON.parse(localStorage.getItem(KEY)||"null"); if(s){notes=s.notes||[]; color=s.color||color; snapEl.checked=s.snap!==false; stamp=s.stamp||0; dirty=!!s.dirty; return;}}catch(e){}
+  try{const s=JSON.parse(localStorage.getItem(KEY)||"null"); if(s){notes=s.notes||[]; archive=s.archive||[]; color=s.color||color; snapEl.checked=s.snap!==false; stamp=s.stamp||0; dirty=!!s.dirty; return;}}catch(e){}
   seed();
 }
 function seed(){
@@ -174,10 +208,77 @@ function seed(){
     {id:id(),text:"Example: a freeform note, not in any lane",color:"sand",lane:null,x:0.27,y:300,tilt:-1.5}
   ];
 }
-function local(){try{localStorage.setItem(KEY,JSON.stringify({notes,color,snap:snapEl.checked,stamp,dirty}))}catch(e){}}
+function local(){try{localStorage.setItem(KEY,JSON.stringify({notes,archive,color,snap:snapEl.checked,stamp,dirty}))}catch(e){}}
 function save(){stamp=Date.now();dirty=true;local();schedulePush()}
 function id(){return Math.random().toString(36).slice(2,10)}
 function colW(){return board.clientWidth/4}
+
+/* ---------- undo / redo ---------- */
+let undoStack=[], redoStack=[], pendingTyping=null;
+function snapshot(){return JSON.stringify({notes:notes.filter(n=>(n.text||"").trim()),archive})}
+function checkpoint(snap){undoStack.push(snap||snapshot());if(undoStack.length>100)undoStack.shift();redoStack=[];paintUndo()}
+function restore(str){const d=JSON.parse(str);notes=d.notes;archive=d.archive;render();save()}
+function undo(){if(!undoStack.length)return;redoStack.push(snapshot());restore(undoStack.pop());paintUndo()}
+function redo(){if(!redoStack.length)return;undoStack.push(snapshot());restore(redoStack.pop());paintUndo()}
+function paintUndo(){const u=document.getElementById("undoBtn"),r=document.getElementById("redoBtn");if(u){u.disabled=!undoStack.length;r.disabled=!redoStack.length}}
+document.addEventListener("keydown",e=>{
+  const t=e.target;if(t&&(t.tagName==="TEXTAREA"||t.tagName==="INPUT"))return; // typing keeps the normal text undo
+  if(!(e.ctrlKey||e.metaKey))return;
+  const k=e.key.toLowerCase();
+  if(k==="z"&&!e.shiftKey){e.preventDefault();undo()}
+  else if(k==="y"||(k==="z"&&e.shiftKey)){e.preventDefault();redo()}
+});
+document.getElementById("undoBtn").onclick=undo;
+document.getElementById("redoBtn").onclick=redo;
+
+/* ---------- archive ---------- */
+function toArchive(list){const t=Date.now();list.forEach(n=>{if((n.text||"").trim())archive.unshift({...n,deletedAt:t})});prune()}
+const archivePanel=document.getElementById("archivePanel"), archiveList=document.getElementById("archiveList");
+function ago(t){const m=Math.round((Date.now()-t)/60000);if(m<1)return"just now";if(m<60)return m+" min ago";const h=Math.round(m/60);if(h<24)return h+" hr ago";const d=Math.round(h/24);return d===1?"yesterday":d+" days ago"}
+function laneName(l){const x=LANES.find(z=>z.id===l);return x?x.name:"Freeform"}
+function paintArchive(){
+  prune();
+  document.getElementById("archiveBtn").textContent=archive.length?`Archive (${archive.length})`:"Archive";
+  if(archivePanel.hidden)return;
+  archiveList.innerHTML="";
+  if(!archive.length){archiveList.innerHTML='<p class="empty">Nothing here. Deleted notes and cleared Done notes will show up for 7 days.</p>';return}
+  archive.forEach(a=>{
+    const li=document.createElement("li");li.style.setProperty("--c",`var(--n-${a.color})`);
+    const txt=document.createElement("div");txt.className="txt";txt.textContent=a.text;
+    const when=document.createElement("span");when.className="when";when.textContent=`${laneName(a.lane)} · deleted ${ago(a.deletedAt)}`;txt.appendChild(when);
+    const b=document.createElement("button");b.className="btn";b.textContent="Restore";
+    b.onclick=()=>{checkpoint();archive=archive.filter(x=>x!==a);const n={...a};delete n.deletedAt;
+      if(n.lane){n.order=1e9;notes.push(n)}else notes.push(n);render();save();paintArchive()};
+    li.append(txt,b);archiveList.appendChild(li);
+  });
+}
+document.getElementById("archiveBtn").onclick=()=>{archivePanel.hidden=false;paintArchive()};
+document.getElementById("archiveClose").onclick=()=>{archivePanel.hidden=true};
+archivePanel.addEventListener("pointerdown",e=>{if(e.target===archivePanel)archivePanel.hidden=true});
+
+/* ---------- move-to menu ---------- */
+let openMenu=null;
+function closeMenu(){if(openMenu){openMenu.remove();openMenu=null}}
+document.addEventListener("pointerdown",e=>{if(openMenu&&!openMenu.contains(e.target)&&!e.target.closest(".mv"))closeMenu()},true);
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeMenu();archivePanel.hidden=true}});
+function moveTo(n,lane){
+  checkpoint();
+  if(lane){n.lane=lane;n.order=1e9;n.tilt=0}
+  else{const el=els.get(n.id);n.lane=null;n.x=(el?el.offsetLeft:20)/board.clientWidth;n.y=el?el.offsetTop:HEAD;n.tilt=+(Math.random()*3-1.5).toFixed(1)}
+  const el=els.get(n.id);if(el)paint(el,n);layout();save();
+  if(lane){const i=LANES.findIndex(l=>l.id===lane);const target=i*colW();if(target<wrap.scrollLeft||target>wrap.scrollLeft+wrap.clientWidth-40)wrap.scrollTo({left:target,behavior:"smooth"})}
+}
+function showMenu(n,el){
+  closeMenu();
+  const m=document.createElement("div");m.className="menu";m.setAttribute("role","menu");
+  m.innerHTML='<div class="label">Move to</div>';
+  [...LANES.map(l=>[l.id,l.name]),[null,"Freeform"]].forEach(([lid,name])=>{
+    const b=document.createElement("button");b.textContent=name;b.setAttribute("role","menuitem");
+    if(n.lane===lid)b.setAttribute("aria-current","true");
+    b.onclick=e=>{e.stopPropagation();closeMenu();if(n.lane!==lid)moveTo(n,lid)};m.appendChild(b)});
+  m.addEventListener("pointerdown",e=>e.stopPropagation());
+  el.appendChild(m);openMenu=m;m.querySelector("button").focus();
+}
 
 // lanes
 LANES.forEach(l=>{const d=document.createElement("div");d.className="lane";d.dataset.lane=l.id;
@@ -191,13 +292,15 @@ function paintSw(){COLORS.forEach(c=>document.getElementById("sw-"+c).setAttribu
 
 function makeEl(n){
   const el=document.createElement("div");el.className="note";el.dataset.id=n.id;
-  el.innerHTML=`<div class="grip"><span class="dots"></span><span class="tools">${COLORS.map(c=>`<button data-c="${c}" style="background:var(--n-${c})" aria-label="Make ${c}"></button>`).join("")}<button class="del" aria-label="Delete note">×</button></span></div><textarea id="t-${n.id}" rows="1" placeholder="Type a task…"></textarea>`;
+  el.innerHTML=`<div class="grip"><span class="dots"></span><span class="tools">${COLORS.map(c=>`<button data-c="${c}" style="background:var(--n-${c})" aria-label="Make ${c}"></button>`).join("")}<button class="mv" aria-label="Move to" title="Move to">⇄</button><button class="del" aria-label="Delete note" title="Delete">×</button></span></div><textarea id="t-${n.id}" rows="1" placeholder="Type a task…"></textarea>`;
   const ta=el.querySelector("textarea");ta.value=n.text||"";
-  ta.addEventListener("input",()=>{n.text=ta.value;grow(ta);layout();save()});
+  ta.addEventListener("focus",()=>{pendingTyping=snapshot()});
+  ta.addEventListener("input",()=>{if(pendingTyping){checkpoint(pendingTyping);pendingTyping=null}n.text=ta.value;grow(ta);layout();save()});
   ta.addEventListener("keydown",e=>{if(e.key==="Escape")ta.blur()});
   ta.addEventListener("blur",()=>{if(!ta.value.trim()){remove(n.id)}});
-  el.querySelectorAll(".tools [data-c]").forEach(b=>b.onclick=e=>{e.stopPropagation();n.color=b.dataset.c;paint(el,n);save()});
-  el.querySelector(".del").onclick=e=>{e.stopPropagation();remove(n.id)};
+  el.querySelectorAll(".tools [data-c]").forEach(b=>b.onclick=e=>{e.stopPropagation();if(n.color===b.dataset.c)return;checkpoint();n.color=b.dataset.c;paint(el,n);save()});
+  el.querySelector(".mv").onclick=e=>{e.stopPropagation();openMenu&&openMenu.parentNode===el?closeMenu():showMenu(n,el)};
+  el.querySelector(".del").onclick=e=>{e.stopPropagation();const real=(n.text||"").trim();if(real){checkpoint();toArchive([n])}remove(n.id);paintArchive()};
   el.addEventListener("pointerdown",e=>e.stopPropagation());
   el.querySelector(".grip").addEventListener("pointerdown",e=>startDrag(e,n,el));
   board.appendChild(el);els.set(n.id,el);paint(el,n);
@@ -259,6 +362,7 @@ function startDrag(e,n,el){
   if(e.target.closest("button"))return;
   e.preventDefault();e.stopPropagation();
   const grip=e.currentTarget;grip.setPointerCapture(e.pointerId);
+  closeMenu();const before=snapshot(),startL=el.offsetLeft,startT=el.offsetTop;
   const p0=boardPt(e),ox=p0.x-el.offsetLeft,oy=p0.y-el.offsetTop;
   el.classList.add("dragging");
   let overLane=null;
@@ -271,6 +375,8 @@ function startDrag(e,n,el){
     [...lanesEl.children].forEach(d=>d.classList.remove("over"));
     const cx=el.offsetLeft+el.offsetWidth/2, cy=el.offsetTop;
     el.classList.remove("dragging");
+    if(Math.abs(el.offsetLeft-startL)+Math.abs(el.offsetTop-startT)<4){layout();return}
+    checkpoint(before);
     if(snapEl.checked){n.tilt=0;insert(n,laneAt(cx),cy+el.offsetHeight/2)}
     else{n.lane=null;n.x=Math.max(0,el.offsetLeft)/board.clientWidth;n.y=Math.max(HEAD,cy);if(!n.tilt)n.tilt=+(Math.random()*3-1.5).toFixed(1)}
     paint(el,n);layout();save();
@@ -278,12 +384,13 @@ function startDrag(e,n,el){
   grip.addEventListener("pointermove",move);grip.addEventListener("pointerup",up);grip.addEventListener("pointercancel",up);
 }
 
-document.getElementById("clearDone").onclick=()=>{notes.filter(n=>n.lane==="done").forEach(n=>{const el=els.get(n.id);el&&el.remove();els.delete(n.id)});
-  notes=notes.filter(n=>n.lane!=="done");layout();save()};
+document.getElementById("clearDone").onclick=()=>{const done=notes.filter(n=>n.lane==="done");if(!done.length)return;checkpoint();toArchive(done);
+  done.forEach(n=>{const el=els.get(n.id);el&&el.remove();els.delete(n.id)});notes=notes.filter(n=>n.lane!=="done");layout();save();paintArchive()};
 snapEl.addEventListener("change",save);
 window.addEventListener("resize",layout);
 
 function render(){
+  closeMenu();setTimeout(paintArchive,0);
   els.forEach(el=>el.remove());els.clear();
   paintSw();notes.forEach(makeEl);
   requestAnimationFrame(()=>{notes.forEach(n=>{const el=els.get(n.id);el&&grow(el.querySelector("textarea"))});layout()});
@@ -302,7 +409,7 @@ async function gh(path,opts={}){
   if(!r.ok){const e=new Error("HTTP "+r.status);e.status=r.status;throw e}
   return r.status===204?null:r.json();
 }
-function payload(){return JSON.stringify({notes,color,snap:snapEl.checked,stamp},null,1)}
+function payload(){prune();return JSON.stringify({notes,archive,color,snap:snapEl.checked,stamp},null,1)}
 async function findOrCreate(){
   for(let page=1;page<=5;page++){
     const list=await gh(`/gists?per_page=100&page=${page}`);
@@ -328,7 +435,7 @@ async function pull(){
   try{
     const d=await readRemote();
     if(d&&Array.isArray(d.notes)&&(d.stamp||0)!==stamp){
-      notes=d.notes;color=d.color||color;snapEl.checked=d.snap!==false;stamp=d.stamp||0;local();render();
+      notes=d.notes;archive=d.archive||[];color=d.color||color;snapEl.checked=d.snap!==false;stamp=d.stamp||0;undoStack=[];redoStack=[];paintUndo();local();render();
     }
     status("ok","Synced");
   }catch(e){fail(e)}
@@ -363,7 +470,7 @@ async function connect(){
     const d=await readRemote();
     if(d&&Array.isArray(d.notes)){
       if(dirty&&stamp>(d.stamp||0)){await push()}
-      else{notes=d.notes;color=d.color||color;snapEl.checked=d.snap!==false;stamp=d.stamp||0;dirty=false;local();render()}
+      else{notes=d.notes;archive=d.archive||[];color=d.color||color;snapEl.checked=d.snap!==false;stamp=d.stamp||0;dirty=false;undoStack=[];redoStack=[];paintUndo();local();render()}
     }else{await push()}
     status("ok","Synced");return true;
   }catch(e){fail(e);return false}
