@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>body{margin:0;font-size:14px}[hidden]{display:none!important}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
 <title>Scrum Board</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#2f5d73">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Scrum Board">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
 <style>
@@ -54,6 +62,7 @@ body{background:var(--bg);color:var(--fg);font-family:var(--f-body);display:flex
 .board{position:relative;min-width:960px;min-height:100%;cursor:text;
   background-image:radial-gradient(var(--grid) 1px,transparent 1.2px);background-size:22px 22px}
 .lanes{position:absolute;inset:0;display:grid;grid-template-columns:repeat(4,1fr);pointer-events:none}
+.lanes .lane{pointer-events:none}
 .lane{border-right:1px dashed var(--line);position:relative}
 .lane:last-child{border-right:0}
 .lane.over{background:color-mix(in srgb,var(--accent) 7%,transparent)}
@@ -61,6 +70,12 @@ body{background:var(--bg);color:var(--fg);font-family:var(--f-body);display:flex
 .lane h2{font-family:var(--f-display);font-weight:500;font-size:1rem;margin:0}
 .lane .count{font-family:var(--f-mono);font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
 .lane .sub{font-size:.75rem;color:var(--muted);margin-left:auto}
+@media (max-width:700px){
+  .board{min-width:340vw}
+  .wrap{scroll-snap-type:x mandatory}
+  .lanes .lane{scroll-snap-align:start}
+  .hint{display:none}
+}
 
 .note{position:absolute;width:220px;background:var(--c);color:var(--note-fg);border-radius:3px;box-shadow:var(--shadow);
   display:flex;flex-direction:column;cursor:default;transition:top .18s ease,left .18s ease,box-shadow .15s}
@@ -215,18 +230,28 @@ function insert(n,lane,y){const {list,k}=orderAt(lane,y,n.id);list.splice(k,0,n)
 
 function boardPt(e){const r=board.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top}}
 
-// click to create
+// click (or tap) to create: fires on release only if the pointer didn't move, so scrolling never makes notes
+let down=null;
 board.addEventListener("pointerdown",e=>{
-  if(e.button!==0)return;
+  if(e.button!==0){down=null;return}
   const a=document.activeElement;
-  if(a&&a.tagName==="TEXTAREA"&&board.contains(a)){a.blur();return}
+  if(a&&a.tagName==="TEXTAREA"&&board.contains(a)){a.blur();down=null;return}
+  down={x:e.clientX,y:e.clientY,t:e.pointerType};
+  if(e.pointerType==="mouse")e.preventDefault();
+});
+board.addEventListener("pointercancel",()=>{down=null});
+// stop the browser's follow-up mousedown (fired after a tap) from stealing focus from the new note
+board.addEventListener("mousedown",e=>{if(!e.target.closest(".note"))e.preventDefault()});
+board.addEventListener("pointerup",e=>{
+  if(!down)return;
+  const moved=Math.hypot(e.clientX-down.x,e.clientY-down.y)>8;down=null;
+  if(moved||e.target.closest(".note"))return;
   const p=boardPt(e);
   const n={id:id(),text:"",color,lane:null,x:0,y:0,tilt:0};
   if(snapEl.checked){notes.push(n);insert(n,laneAt(p.x),p.y)}
   else{n.x=Math.max(0,(p.x-110))/board.clientWidth;n.y=Math.max(HEAD,p.y-14);n.tilt=+(Math.random()*3-1.5).toFixed(1);notes.push(n)}
   const el=makeEl(n);layout();
-  e.preventDefault();
-  setTimeout(()=>el.querySelector("textarea").focus(),0);
+  el.querySelector("textarea").focus();
 });
 
 // drag
