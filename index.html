@@ -397,7 +397,7 @@ function layout(){
     lanesEl.children[i].querySelector(".count").textContent=list.length;
   });
   notes.filter(n=>!n.lane).forEach(n=>{const el=els.get(n.id);if(!el||el.classList.contains("dragging"))return;
-    el.style.width=Math.min(220*(n.size||1),board.clientWidth-8)+"px";el.style.left=Math.max(4,Math.min(n.x*board.clientWidth,board.clientWidth-el.offsetWidth-4))+"px";el.style.top=n.y+"px";maxY=Math.max(maxY,n.y+el.offsetHeight)});
+    el.style.width=Math.min(220*(n.size||1),Math.max(220,w-PAD*2))+"px";el.style.left=Math.max(4,Math.min(n.x*board.clientWidth,board.clientWidth-el.offsetWidth-4))+"px";el.style.top=n.y+"px";maxY=Math.max(maxY,n.y+el.offsetHeight)});
   board.style.height=Math.max(wrap.clientHeight,maxY+160)+"px";
 }
 
