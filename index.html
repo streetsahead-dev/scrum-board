@@ -258,7 +258,8 @@ archivePanel.addEventListener("pointerdown",e=>{if(e.target===archivePanel)archi
 
 /* ---------- move-to menu ---------- */
 let openMenu=null;
-function closeMenu(){if(openMenu){openMenu.remove();openMenu=null}}
+function closeMenu(){if(!openMenu)return;const host=openMenu.parentNode;openMenu.remove();openMenu=null;
+  const ta=host&&host.querySelector&&host.querySelector("textarea");if(ta&&!ta.value.trim()&&document.activeElement!==ta){const nid=host.dataset.id;setTimeout(()=>{if(document.activeElement!==ta&&!ta.value.trim())remove(nid)},0)}}
 document.addEventListener("pointerdown",e=>{if(openMenu&&!openMenu.contains(e.target)&&!e.target.closest(".mv"))closeMenu()},true);
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeMenu();archivePanel.hidden=true}});
 function moveTo(n,lane){
@@ -297,8 +298,10 @@ function makeEl(n){
   ta.addEventListener("focus",()=>{pendingTyping=snapshot()});
   ta.addEventListener("input",()=>{if(pendingTyping){checkpoint(pendingTyping);pendingTyping=null}n.text=ta.value;grow(ta);layout();save()});
   ta.addEventListener("keydown",e=>{if(e.key==="Escape")ta.blur()});
-  ta.addEventListener("blur",()=>{if(!ta.value.trim()){remove(n.id)}});
-  el.querySelectorAll(".tools [data-c]").forEach(b=>b.onclick=e=>{e.stopPropagation();if(n.color===b.dataset.c)return;checkpoint();n.color=b.dataset.c;paint(el,n);save()});
+  // an empty note is removed when you click away, but not when you click its own color/move buttons
+  ta.addEventListener("blur",e=>{if(e.relatedTarget&&el.contains(e.relatedTarget))return;setTimeout(()=>{if(!el.contains(document.activeElement)&&!(openMenu&&el.contains(openMenu))&&!ta.value.trim())remove(n.id)},0)});
+  el.querySelectorAll(".tools button").forEach(b=>b.addEventListener("mousedown",e=>e.preventDefault()));
+  el.querySelectorAll(".tools [data-c]").forEach(b=>b.onclick=e=>{e.stopPropagation();if(n.color===b.dataset.c)return;if((n.text||"").trim())checkpoint();n.color=b.dataset.c;paint(el,n);save();if(!(n.text||"").trim())ta.focus()});
   el.querySelector(".mv").onclick=e=>{e.stopPropagation();openMenu&&openMenu.parentNode===el?closeMenu():showMenu(n,el)};
   el.querySelector(".del").onclick=e=>{e.stopPropagation();const real=(n.text||"").trim();if(real){checkpoint();toArchive([n])}remove(n.id);paintArchive()};
   el.addEventListener("pointerdown",e=>e.stopPropagation());
